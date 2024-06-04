@@ -45,6 +45,7 @@ def process_apcemm_data(f,column_width=None,weight_by_area=True,collapse_vertica
     x_edge_native[1:-1] = (x_mid_native[1:] + x_mid_native[:-1]) * 0.5
     x_edge_native[0]  = x_edge_native[1]  - (0.5*(x_edge_native[1]  - x_mid_native[0] ))
     x_edge_native[-1] = x_edge_native[-2] + (0.5*(x_edge_native[-2] - x_mid_native[-1]))
+    width_native = np.diff(x_edge_native)
 
     # Find the edges of the contrail
     iwc_sum = np.sum(ice_water_content_native,axis=0).squeeze()
@@ -69,13 +70,17 @@ def process_apcemm_data(f,column_width=None,weight_by_area=True,collapse_vertica
             i0 = idx_nonzero_local[0]
             i1 = idx_nonzero_local[-1] + 1 # Add 1 because this one wil be excluded
             #print(f'{i_x:5d}: {i0:6d} -> {i1:6d}')
-            # WARNING: Assuming here all grid boxes are the same width
-            crystal_radius[:,i_x] = np.sum(weighting[:,i0:i1] * effective_radius[:,i0:i1],axis=1)/np.sum(weighting[:,i0:i1],axis=1)
-            ice_water_content[:,i_x] = np.mean(ice_water_content_native[:,i0:i1],axis=1)
-            layer_weights[:,i_x] = np.sum(weighting[:,i0:i1])
+            # For consisteny isolate the cells which we are using 
+            local_width_vec = width_native[i0:i1]
+            local_width_sum = np.sum(local_width_vec)
+            crystal_radius[:,i_x] = np.sum(local_width_vec * weighting[:,i0:i1] * effective_radius[:,i0:i1],axis=1)/np.sum(local_width_vec * weighting[:,i0:i1],axis=1)
+            ice_water_content[:,i_x] = np.sum(local_width_vec * ice_water_content_native[:,i0:i1],axis=1)/local_width_sum
+            layer_weights[:,i_x] = np.sum(weighting[:,i0:i1] * local_width_vec) / local_width_sum
+            width[i_x] = local_width_sum
         else:
             crystal_radius[:,i_x] = 1.0e-9
             ice_water_content[:,i_x] = 0.0
+            width[i_x] = 0.0
     if collapse_vertical:
         z_edge = np.array([z_edge[0],z_edge[-1]])
         p_edge = np.array([p_edge[0],p_edge[-1]])
