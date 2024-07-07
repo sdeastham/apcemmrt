@@ -20,6 +20,100 @@ def convert_datetime64_to_datetime( usert: np.datetime64 )->datetime:
     t = np.datetime64( usert, 'us').astype(datetime)
     return t
 
+from typing import List, Optional
+# For reading from CG data:
+#  -> 2D ['aluvd','aluvp','alnid','alnip']:
+#  --> aluvd:     Albedo (UV direct) [-]
+#  --> aluvp:     Albedo (UV diffuse) [-]
+#  --> alnid:     Albedo (near-IR direct) [-]
+#  --> alnip:     Albedo (near-IR diffuse) [-]
+#  -> 3D (NB: ciwc and clwc are grid cell averages, and the divisor is dry air + water vapour + 
+#         cloud water + cloud ice + precipitating water + precipitating ice)
+#  --> cc:        3D cloud fraction [-]
+#  --> ciwc:      Cloud ice water content [kg ice/kg grid cell air]
+#  --> clwc:      Cloud liquid water content [kg ice/kg grid cell air]
+#  --> q:         Specific humidity [kg water/kg total air] (https://codes.ecmwf.int/grib/param-db/247)
+#  --> t:         Temperature [K]
+def extract_era5(time_vec: List[float],lon_vec: List[float],lat_vec: List[float],
+                 var_list_sfc: List[str], var_list_plev: List[str],
+                 sfc_file_format: str, plev_file_format: str,
+                 lon_edge: Optional[List[float]] = None,lat_edge: Optional[List[float]] = None,
+                 lon_var: str = 'longitude', lat_var: str = 'latitude', lev_var: str = 'isobaricInhPa'):
+    # time_vec:         List of datetimes
+    # lon_vec:          List of longitudes (degrees)
+    # lat_vec:          List of latitudes (degrees)
+    # var_list_sfc:     List of variable names to be read from ERA5 surface data file
+    # var_list_plev:    List of variable names to be read from ERA5 pressure level file
+    # lon_edge:         Longitude edges of the input met data (degrees)
+    # lat_edge:         Latitude edges of the input met data (degrees)
+    
+    # Read dimension data if not supplied
+    n_times = len(time_vec)
+    n_2D_vars = len(var_list_sfc)
+    n_3D_vars = len(var_list_plev)
+    data_2D = {}
+    data_3D = {}
+    for var in var_list_sfc:
+        data_2D[var] = np.zeros(n_times)
+    n_levs = None
+    lon_idx = None
+    lat_idx = None
+    for time in time_vec:
+        year  = time.year
+        month = time.month
+        day   = time.day
+        with Dataset(sfc_file_format.format(year,month,day)) as nc:
+            t_file_int = nc['time'][...] # Usually seconds since 1970-01-01, but this should be checked...
+            
+            if lon_era5 is None or lat_era5 is None:
+                lon_era5 = nc[lon_var][...]
+                lat_era5 = nc[lat_var][...]
+                nlon = len(lon_era5)
+                nlat = len(lat_era5)
+                lon_edge = np.zeros(nlon+1)
+                lat_edge = np.zeros(nlat+1)
+                dlon = np.median(np.diff(lon_era5))
+                dlat = np.median(np.diff(lat_era5))
+                lon_edge[:-1] = lon_era5 - (dlon*0.5)
+                lon_edge[-1] = lon_edge[-2] + dlon
+                lat_edge[1:-1] = lat_era5 - (dlat*0.5)
+                lat_edge[0] = lat_edge[1] - dlat
+                lat_edge[-1] = lat_edge[-2] + dlat
+            
+            if lon_idx is None or lat_idx is None:
+                # Get the indices to be returned
+                lon_idx, lat_idx = get_lonlat_idx(lon_vec,lat_vec,lon_edge,lat_edge)
+            
+            #for var in var_list_sfc:
+                
+        with Dataset(plev_file_format.format(year,month,day)) as nc:
+            if n_levs is None:
+                n_levs = len(nc[lev_var])
+                for var in var_list_plev:
+                    data_3D[var] = np.zeros((n_times,n_levs))
+    return data_2D, data_3D, lon_edge, lat_edge
+
+def get_lonlat_idx(lon,lat,lon_edge,lat_edge):
+    # Are the latitudes order south to north?
+    s_to_n = lat[1] > lat[0]
+    # Make sure that the longitudes are using the same "edges" as the globe
+    lon_mod = lon
+    i_minlon = np.argmin(lon_mod)
+    while lon_mod[i_minlon] < lon_edge[0]:
+        lon_mod += 360.0
+    i_maxlon = np.argmax(lon_mod)
+    while lon_mod[i_maxlon] >= lon_edge[-1]:
+        lon_mod -= 360.0
+    dlon = np.median(np.diff(lon_edge))
+    dlat = np.median(np.diff(lat_edge))
+    
+    lon_idx = np.floor((lon_mod - lon_edge)/dlon)
+    if s_to_n:
+        lat_idx = np.floor((lat - lat_edge)/dlat)
+    else:
+        lat_idx = np.ceil((lat - lat_edge)/(-1.0*dlat))
+    return np.int32(lon_idx), np.int32(lat_idx)
+
 def process_apcemm_data(f,column_width=None,weight_by_area=True,collapse_vertical=True):
     with Dataset(f,'r') as nc:
         x_mid_native = nc['x'][:] # m

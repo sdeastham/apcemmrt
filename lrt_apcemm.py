@@ -167,12 +167,6 @@ def process_apcemm_data(apcemm_dir, met_data=None, f_list_in=None, column_width=
                 #TODO: Read in surface conditions
                 #TODO: Transmit relative humidity field
             
-                # Set up the contrail
-                #TODO: Multiple layers
-                #contrail_data = {'z':   np.array([contrail_top,contrail_base]),
-                #                 'iwc': np.array([0, contrail_iwc]), # g/m3
-                #                 're':  np.array([0, contrail_r])}
-        
                 # Need to pad (zero IWC at top) and flip (top -> bottom)
                 contrail_iwc_offset = np.zeros(contrail_z_edge.size)
                 contrail_r_m_offset = np.zeros(contrail_z_edge.size)
